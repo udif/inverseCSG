@@ -104,8 +104,7 @@ def InstallEigen():
   cpp_lib_folder = os.path.join(root_folder, 'cpp', 'lib')
   helper.Run('unzip eigen-3.3.4.zip -d %s' % os.path.join(cpp_lib_folder))
   helper.Run('ls -latr')
-  helper.Run('mv -f %s %s' % (os.path.join(cpp_lib_folder,'eigen-3.3.4'), os.path.join(cpp_lib_folder, 'eigen-3.3.4')))
-  helper.Run('rm 3.3.4.zip')
+  helper.Run('rm eigen-3.3.4.zip')
   helper.PrintWithGreenColor('Installed Eigen')
 
 def InstallJava():
@@ -114,22 +113,26 @@ def InstallJava():
   helper.Run('sudo apt install default-jdk')
   # Currently JAVA_HOME is hard coded.
   helper.RunWithStdout('ls /usr/lib/jvm/')
-  if os.environ['TRAVIS_DIST_NAME']=='bionic':
-    java_home = '/usr/lib/jvm/java-1.11.0-openjdk-amd64/' 
-  if os.environ['TRAVIS_DIST_NAME']=='xenial':
-    java_home = '/usr/lib/jvm/java-1.8.0-openjdk-amd64/' 
-  if os.environ['TRAVIS_DIST_NAME']=='eoan':
-    java_home = '/usr/lib/jvm/java-1.11.0-openjdk-amd64/' 
+  java_home = subprocess.getoutput('readlink -f /usr/lib/jvm/default-java')
   env_variables['JAVA_HOME'] = os.environ['JAVA_HOME'] = java_home
   path = os.path.join(java_home, 'bin') + ':' + os.environ['PATH']
   env_variables['PATH'] = os.environ['PATH'] = path
   helper.Run('%s -version' % os.path.join(java_home, 'bin', 'java'))
 
 def InstallMaven():
-  maven_url = 'https://mirrors.koehn.com/apache/maven/maven-3/3.5.4/binaries/apache-maven-3.5.4-bin.zip'
+  with urllib.request.urlopen('https://maven.apache.org/download.cgi') as response:
+    now = False
+    for l in response.readlines():
+      if now:
+        maven_mirror = l.decode('utf-8').split('b>')[1][:-2]
+        break
+      if l.decode('utf-8').find('The currently selected download mirror is') >= 0:
+        now = True
+  maven_url = maven_mirror + 'maven/maven-3/3.5.4/binaries/apache-maven-3.5.4-bin.zip'
   maven_file = os.path.join(build_folder, 'maven.zip')
+  print(maven_url)
   urllib.request.urlretrieve(maven_url, maven_file)
-  helper.RunWithStdout('sudo unzip -q %s -d %s' % (maven_file, build_folder))
+  helper.RunWithStdout('unzip -q %s -d %s' % (maven_file, build_folder))
   os.remove(maven_file)
   # ls build dir after maven unzip
   print('build_folder: %s' % (build_folder))
@@ -147,7 +150,62 @@ def InstallMaven():
   # Check maven.
   # helper.RunWithStdout('sudo rm /usr/bin/mvn') 
   helper.RunWithStdout('sudo ln -s '+maven_loc+'/mvn' +' /usr/bin/mvn' )
-  helper.RunWithStdout('sudo mvn -v')
+  helper.RunWithStdout('mvn -v')
+
+def InstallSketch():
+  # Download sketch-backend.
+  sketch_folder = os.path.join(build_folder, 'sketch')
+  if not os.path.exists(sketch_folder):
+    os.makedirs(sketch_folder)
+  # Sketch-backend.
+  os.chdir(sketch_folder)
+  helper.Run('git clone https://github.com/asolarlez/sketch-backend')
+  #helper.Run('sudo mv sketch-backend sketch-backend-default')
+  ## Use this version of sketch.
+  ## decomment this if SNOPT installed
+  ## helper.Run('sudo hg clone -r numsynth2 sketch-backend-default sketch-backend') 
+  #helper.Run('sudo hg clone -r 04b3403 sketch-backend-default sketch-backend')
+  sketch_backend_folder = os.path.join(sketch_folder, 'sketch-backend')
+  env_variables['CSG_SKETCH_BACKEND'] = sketch_backend_folder
+  os.chdir(sketch_backend_folder)
+  helper.Run('bash autogen.sh')
+  #helper.RunWithStdout('ls')
+  #helper.RunWithStdout('find . -name "config.log"')
+  #helper.RunWithStdout('sudo df -h .')
+  #helper.RunWithStdout('ls -l configure')
+  #helper.RunWithStdout('sudo cat /etc/fstab')
+  helper.RunWithStdout('./configure')
+  #helper.RunWithStdout('sudo gcc -v')
+  #helper.RunWithStdout('sudo cp '+ os.path.join(root_folder,'StringHTable.h') + ' ' + os.path.join(sketch_folder, 'sketch-backend/src/SketchSolver/InputParser/StringHTable.h'))
+  #helper.RunWithStdout('sudo make -j2 -w -s --no-print-directory')
+  helper.RunWithStdout('make -j{} -w -s --no-print-directory'.format(cpu_cores))
+  # Interestingly, I need to manually do the following copy and paste work to
+  # avoid an error in sketch-frontend.
+  sketch_solver_folder = os.path.join(sketch_backend_folder, 'src/SketchSolver')
+  helper.RunWithStdout('ls '+ os.path.join(sketch_solver_folder))
+  shutil.copyfile(os.path.join(sketch_solver_folder, 'libcegis.a'), \
+                  os.path.join(sketch_solver_folder, '.libs/libcegis.a'))
+  shutil.copyfile(os.path.join(sketch_solver_folder, 'cegis'), \
+                  os.path.join(sketch_solver_folder, '.libs/cegis'))
+
+  # Download sketch-frontend.
+  os.chdir(sketch_folder)
+  helper.Run('git clone https://github.com/asolarlez/sketch-frontend')
+  #helper.Run('sudo mv sketch-frontend sketch-frontend-default')
+  # Use this version of sketch.
+  #helper.Run('sudo hg clone -r 2c8b363 sketch-frontend-default sketch-frontend')
+  sketch_frontend_folder = os.path.join(sketch_folder, 'sketch-frontend')
+  env_variables['CSG_SKETCH_FRONTEND'] = sketch_frontend_folder
+  os.chdir(sketch_frontend_folder)
+  shutil.copyfile(os.path.join(root_folder, 'pom.xml'), \
+                  os.path.join(sketch_frontend_folder, 'pom.xml'))
+  helper.Run('sudo make system-install DESTDIR=/usr/bin SUDOINSTALL=1 -w --no-print-directory -s')
+
+  # Now check Sketch again.
+  if not CheckSketch():
+    helper.PrintWithRedColor('Failed to install Sketch. Please fix.')
+    sys.exit(-1)
+
 
 ################################################################################
 # Variables.
@@ -161,7 +219,7 @@ env_variables = {}
 if len(sys.argv) < 2:
   print('Usage: python3 install.py <build_folder>')
   sys.exit(-1)
-
+cpu_cores = subprocess.getoutput('grep cores /proc/cpuinfo').split()[3]
 build_folder = os.path.realpath(sys.argv[1])
 root_folder = os.path.dirname(os.path.realpath(sys.argv[0]))
 if not os.path.exists(build_folder):
@@ -184,8 +242,7 @@ helper.RunWithStdout('sudo apt-get install gcc-snapshot -y')
 helper.RunWithStdout('sudo python3 -m pip install numpy scipy matplotlib ipython '
            'jupyter pandas sympy nose')
 helper.RunWithStdout('sudo python3 -m pip install -U scikit-learn')
-helper.RunWithStdout('sudo apt-get install autoconf libtool flex bison '
-  'mercurial zsh cmake -y')
+helper.RunWithStdout('sudo apt-get install autoconf libtool flex bison zsh cmake unzip -y')
 
 # BISON version should be gt 3
 helper.RunWithStdout('bison --version')
@@ -207,7 +264,7 @@ os.environ['CC'] = '/usr/bin/gcc-9'
 os.environ['CXX'] = '/usr/bin/g++-9'
 helper.Run('sudo cmake -DCGAL_DIR=%s %s' % (env_variables['CGAL_DIR'], \
                                        os.path.join(root_folder, 'cpp')))
-helper.Run('sudo make -w -s --no-print-directory')
+helper.Run('sudo make -j{} -w -s --no-print-directory -j'.format(cpu_cores))
 helper.PrintWithGreenColor('C++ program compiled successfully.')
 env_variables['CSG_CPP_EXE'] = os.path.join(cpp_build_folder,
                                             'csg_cpp_command')
@@ -219,71 +276,19 @@ if CheckSketch():
     build_folder, 'ENVIRONMENT'))
   helper.PrintWithGreenColor('Installation Done.')
   sys.exit(0)
+else:
+  # If we are here, Sketch is not properly installed.
+  # First, install Oracle JDK 8.
+  print('Attempt to install Oracle JDK 8. Asking for sudo privilege.')
+  InstallJava()
 
-# If we are here, Sketch is not properly installed.
-# First, install Oracle JDK 8.
-print('Attempt to install Oracle JDK 8. Asking for sudo privilege.')
-InstallJava()
+  # Next, install maven.
+  InstallMaven()
 
-# Next, install maven.
-InstallMaven()
-
-# Download sketch-backend.
-sketch_folder = os.path.join(build_folder, 'sketch')
-if not os.path.exists(sketch_folder):
-  os.makedirs(sketch_folder)
-# Sketch-backend.
-os.chdir(sketch_folder)
-helper.Run('sudo hg clone https://bitbucket.org/gatoatigrado/sketch-backend')
-helper.Run('sudo mv sketch-backend sketch-backend-default')
-# Use this version of sketch.
-# decomment this if SNOPT installed
-# helper.Run('sudo hg clone -r numsynth2 sketch-backend-default sketch-backend') 
-helper.Run('sudo hg clone -r 04b3403 sketch-backend-default sketch-backend')
-sketch_backend_folder = os.path.join(sketch_folder, 'sketch-backend')
-env_variables['CSG_SKETCH_BACKEND'] = sketch_backend_folder
-os.chdir(sketch_backend_folder)
-helper.Run('sudo bash autogen.sh')
-helper.RunWithStdout('ls')
-helper.RunWithStdout('sudo find . -name "config.log"')
-helper.RunWithStdout('sudo df -h .')
-helper.RunWithStdout('ls -l configure')
-helper.RunWithStdout('sudo cat /etc/fstab')
-helper.RunWithStdout('sudo sh ./configure')
-helper.RunWithStdout('sudo gcc -v')
-helper.RunWithStdout('sudo cp '+ os.path.join(root_folder,'StringHTable.h') + ' ' + os.path.join(sketch_folder, 'sketch-backend/src/SketchSolver/InputParser/StringHTable.h'))
-helper.RunWithStdout('sudo make -j2 -w -s --no-print-directory')
-# Interestingly, I need to manually do the following copy and paste work to
-# avoid an error in sketch-frontend.
-sketch_solver_folder = os.path.join(sketch_backend_folder, 'src/SketchSolver')
-helper.RunWithStdout('ls '+ os.path.join(sketch_solver_folder))
-shutil.copyfile(os.path.join(sketch_solver_folder, 'libcegis.a'), \
-                os.path.join(sketch_solver_folder, '.libs/libcegis.a'))
-shutil.copyfile(os.path.join(sketch_solver_folder, 'cegis'), \
-                os.path.join(sketch_solver_folder, '.libs/cegis'))
-
-# Download sketch-frontend.
-os.chdir(sketch_folder)
-helper.Run('sudo hg clone https://bitbucket.org/gatoatigrado/sketch-frontend')
-helper.Run('sudo mv sketch-frontend sketch-frontend-default')
-# Use this version of sketch.
-helper.Run('sudo hg clone -r 2c8b363 sketch-frontend-default sketch-frontend')
-sketch_frontend_folder = os.path.join(sketch_folder, 'sketch-frontend')
-env_variables['CSG_SKETCH_FRONTEND'] = sketch_frontend_folder
-os.chdir(sketch_frontend_folder)
-shutil.copyfile(os.path.join(root_folder, 'pom.xml'), \
-                os.path.join(sketch_frontend_folder, 'pom.xml'))
-helper.Run('sudo make system-install DESTDIR=/usr/bin SUDOINSTALL=1 -w --no-print-directory -s')
-
-# Now check Sketch again.
-if not CheckSketch():
-  helper.PrintWithRedColor('Failed to install Sketch. Please fix.')
-  sys.exit(-1)
+  InstallSketch()
 
 SaveCustomizedEnvironmentVariables(env_variables, os.path.join(
   build_folder, 'ENVIRONMENT'))
-
-
 
 ################################################################################
 # Tests on samples

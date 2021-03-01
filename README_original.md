@@ -39,7 +39,7 @@ You can also choose to do a manual installation if `install.py` fails to finish 
   make
   ```
 
-* Follow the **Install from source** section in [this link](https://bitbucket.org/gatoatigrado/sketch-frontend/wiki/Installation) to install `Sketch`.
+* Follow the **Install from source** section in [this link](https://github.com/asolarlez/sketch-frontend/wiki) to install `Sketch`.
 
 ### Test
 If the installation is successful, you can navigate to the root folder and try running:
